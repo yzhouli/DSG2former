@@ -1,0 +1,7 @@
+-r requirements.txt
+transformers>=4.46,<5
+safetensors>=0.4
+nltk==3.9.1
+emoji==0.6.0
+requests>=2.31,<3
+sentencepiece>=0.2,<1

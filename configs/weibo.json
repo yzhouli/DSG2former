@@ -1,0 +1,53 @@
+{
+  "dataset": "Weibo",
+  "data_dir": "data/weibo",
+  "output_dir": "outputs/weibo",
+  "attention": "dense",
+  "cpu_threads": 1,
+  "seeds": [
+    42,
+    2025,
+    2026
+  ],
+  "backbones": [
+    "d24_regular",
+    "d96_regular",
+    "d48_strong_reg"
+  ],
+  "training": {
+    "spatial_epochs": 100,
+    "spatial_min_epochs": 20,
+    "spatial_patience": 12,
+    "batch_size": 64,
+    "temporal_epochs": 150,
+    "temporal_min_epochs": 20,
+    "temporal_patience": 15
+  },
+  "protocol": {
+    "split_unit": "source information item",
+    "split_order": "source publication time",
+    "ratio": [
+      0.8,
+      0.1,
+      0.1
+    ],
+    "expected_items": 2313,
+    "expected_split_items": [
+      1850,
+      231,
+      232
+    ],
+    "window_seconds": 3600,
+    "horizon_hours": 72,
+    "nonparticipation_positive_ratio": 0.5,
+    "semantic_cosine_threshold": 0.98,
+    "gamma": 0.23,
+    "half_life_seconds": 900,
+    "history_top_k": 5,
+    "mask_rates": [
+      1.0,
+      0.5
+    ],
+    "input_dim": 184
+  }
+}
