@@ -1,14 +1,56 @@
-"""Validate and import the benchmark's prepared, causal graph interface."""
+"""Extract and validate prepared graph inputs for training and evaluation."""
 import argparse
 from collections import Counter
 import json
 from pathlib import Path
 import shutil
+import tarfile
+import tempfile
 
 import numpy as np
 import torch
 
-from cli_utils import config, digest, write_json
+from cli_utils import ROOT, config, digest, write_json
+
+
+def unpack(archive, destination):
+    """Extract the two input files without overwriting an existing dataset."""
+    import zstandard
+
+    names = {"neural/graphs.pt", "hourly/threads.jsonl"}
+    paths = [destination / name for name in sorted(names)]
+    if all(path.is_file() for path in paths):
+        return
+    if any(path.exists() for path in paths):
+        raise FileExistsError(f"Incomplete dataset already exists: {destination}")
+    if not archive.is_file():
+        raise FileNotFoundError(f"Missing {archive}; run git lfs pull to download the datasets")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with archive.open("rb") as source:
+        if source.read(40).startswith(b"version https://git-lfs.github.com/spec/"):
+            raise ValueError("Dataset is a Git LFS pointer; run git lfs pull first")
+        source.seek(0)
+        with tempfile.TemporaryDirectory(prefix=".extract-", dir=destination.parent) as folder:
+            staging = Path(folder)
+            seen = set()
+            with zstandard.ZstdDecompressor().stream_reader(source) as reader:
+                with tarfile.open(fileobj=reader, mode="r|") as contents:
+                    for member in contents:
+                        if member.name not in names or member.name in seen or not member.isfile():
+                            raise ValueError(f"Unexpected archive member: {member.name}")
+                        target = staging / member.name
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with contents.extractfile(member) as stream, target.open("wb") as output:
+                            shutil.copyfileobj(stream, output, length=2**20)
+                        if target.stat().st_size != member.size:
+                            raise ValueError(f"Truncated archive member: {member.name}")
+                        seen.add(member.name)
+            if seen != names:
+                raise ValueError("Archive must contain graphs.pt and threads.jsonl")
+            for name in sorted(names):
+                target = destination / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                (staging / name).replace(target)
 
 
 def validate(data, metadata, feature_dim=184):
@@ -86,15 +128,23 @@ def validate(data, metadata, feature_dim=184):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
-    parser.add_argument("--graphs", required=True, type=Path, help="Trusted local prepared PyTorch file")
-    parser.add_argument("--threads", required=True, type=Path, help="Source metadata JSONL")
+    parser.add_argument("--archive", type=Path, help="Prepared .tar.zst archive; defaults to datasets/<dataset>.tar.zst")
+    parser.add_argument("--graphs", type=Path, help="Import a trusted local prepared PyTorch file instead")
+    parser.add_argument("--threads", type=Path, help="Source metadata JSONL paired with --graphs")
     args = parser.parse_args()
     value = config(args.config)
-    graphs, threads = args.graphs.resolve(), args.threads.resolve()
+    if bool(args.graphs) != bool(args.threads) or (args.archive and args.graphs):
+        parser.error("Use --graphs and --threads together, or use --archive")
+    destination = Path(value["data_dir"])
+    if args.graphs:
+        graphs, threads = args.graphs.resolve(), args.threads.resolve()
+    else:
+        archive = args.archive or ROOT / "datasets" / f"{value['dataset'].lower()}.tar.zst"
+        unpack(archive.resolve(), destination)
+        graphs, threads = destination / "neural/graphs.pt", destination / "hourly/threads.jsonl"
     data = torch.load(graphs, weights_only=False, map_location="cpu")
     metadata = [json.loads(line) for line in threads.open() if line.strip()]
     statistics = validate(data, metadata)
-    destination = Path(value["data_dir"])
     for source, target in [(graphs, destination / "neural/graphs.pt"), (threads, destination / "hourly/threads.jsonl")]:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and digest(target) != digest(source):
@@ -103,8 +153,7 @@ def main():
             shutil.copyfile(source, target)
     write_json(destination / "import_manifest.json", dict(statistics=statistics,
                graphs_sha256=digest(graphs), threads_sha256=digest(threads),
-               feature_causality="Must be established by the upstream feature-generation audit",
-               importer="Validates the prepared interface; does not relabel or rebuild features"))
+               dataset=value["dataset"]))
     print(json.dumps(statistics, indent=2))
 
 

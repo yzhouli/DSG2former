@@ -24,11 +24,8 @@ dist/
 *.tar
 *.tar.gz
 data/**
-!data/.gitkeep
 outputs/**
-!outputs/.gitkeep
 external/**
-!external/.gitkeep
 models/
 results/
 tmp/

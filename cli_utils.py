@@ -100,7 +100,7 @@ def configure(value):
     peak.OUT = out / "optimized"
     peak.OUT.mkdir(parents=True, exist_ok=True)
     peak.paths = lambda name: (work, peak.OUT)
-    # Retained source hashes freeze an actual release run, not the old workspace.
+    # Freeze training sources so resumed stages use the same implementation.
     from scripts.np50_temporal_peak import train as pt, infer as pi
     pt.paths = pi.paths = peak.paths
     pt.OUT = pi.OUT = peak.OUT
